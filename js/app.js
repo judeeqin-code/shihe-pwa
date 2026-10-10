@@ -680,43 +680,48 @@
     var file = new File([blob], name, { type: "application/json" });
     return { name: name, blob: blob, file: file, size: formatSize(blob.size) };
   }
+  function doDownload(f) {
+    if (!f) { toast("没有可导出的文件"); return; }
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(f.blob);
+    a.download = f.name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { try { URL.revokeObjectURL(a.href); } catch (e) {} a.remove(); }, 1500);
+    toast("已开始下载，请在手机「下载」目录中查找");
+  }
+  function doShare(f) {
+    if (!f) { toast("没有可导出的文件"); return; }
+    if (navigator.canShare && navigator.canShare({ files: [f.file] })) {
+      navigator.share({ files: [f.file], title: "史河售后数据包", text: f.name })
+        .then(function () { toast("已调起系统分享"); })
+        .catch(function () { toast("已取消系统分享，可改用「保存到本机」"); });
+    } else {
+      toast("当前环境不支持系统分享，请用「保存到本机」");
+    }
+  }
   function triggerDownload(json, password) {
     var f = buildExportFile(json, password);
     lastExport = f;
-    function showResult(shared) { showExportResult(f.name, f.size, shared); }
-    if (navigator.canShare && navigator.canShare({ files: [f.file] })) {
-      navigator.share({ files: [f.file], title: "史河售后数据包" })
-        .then(function () { showResult(true); })
-        .catch(function () { showResult(false); });
-    } else {
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(f.blob);
-      a.download = f.name;
-      document.body.appendChild(a); a.click(); a.remove();
-      showResult(false);
-    }
+    var canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [f.file] }));
+    showExportResult(f.name, f.size, canShareFiles);
   }
-  function showExportResult(name, size, shared) {
-    var loc = shared
-      ? "已通过系统分享/保存面板导出，请在所选位置（如「文件」App、网盘等）查找。"
-      : "已保存到浏览器「下载」目录；手机可在「文件」App 或「下载」中查找，桌面端在浏览器下载目录查找。";
+  function showExportResult(name, size, canShareFiles) {
     var html =
       "<h3>导出完成</h3>" +
       '<div class="field"><label>文件名</label><div class="meta">' + esc(name) + "</div></div>" +
       '<div class="sub">大小：' + esc(size) + "</div>" +
-      '<div class="sub" style="margin-top:6px;">' + loc + "</div>" +
+      '<div class="sub" style="margin-top:6px;">文件已在本地生成。点「保存到本机」即可下载到手机「下载」目录（最可靠）；如需发给他人或存到网盘，可点「分享到…」调起系统分享面板。</div>' +
       "<div class='actions'>" +
-      (navigator.canShare ? "<button class='btn ghost' data-x='share'>分享/另存到…</button>" : "") +
-      "<button class='btn primary' data-x='ok'>知道了</button></div>";
+      "<button class='btn primary' data-x='save'>保存到本机</button>" +
+      (canShareFiles ? "<button class='btn ghost' data-x='share'>分享到…</button>" : "") +
+      "<button class='btn' data-x='ok'>关闭</button></div>";
     openSheet(html, function (sheet, ov) {
+      var save = $("[data-x=save]", sheet);
+      if (save) save.onclick = function () { doDownload(lastExport); };
+      var sh = $("[data-x=share]", sheet);
+      if (sh) sh.onclick = function () { doShare(lastExport); };
       var ok = $("[data-x=ok]", sheet);
       if (ok) ok.onclick = function () { closeSheet(ov); };
-      var sh = $("[data-x=share]", sheet);
-      if (sh) sh.onclick = function () {
-        if (lastExport && navigator.canShare && navigator.canShare({ files: [lastExport.file] })) {
-          navigator.share({ files: [lastExport.file], title: "史河售后数据包" }).catch(function () {});
-        }
-      };
     });
   }
   function doExport(password) {
