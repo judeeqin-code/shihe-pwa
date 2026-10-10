@@ -609,7 +609,7 @@
       '<div class="card"><div class="section-title">账号</div><div class="meta">' + esc(who) + "</div>" +
       '<button class="btn block ghost" data-act="changepw" style="margin-top:10px;">修改密码</button></div>' +
       '<div class="card"><div class="section-title">互通数据包（与 Win 桌面端互导）</div>' +
-      '<div class="sub" style="margin-bottom:10px;">导出含全部业务数据与现场照片的 JSON 包；可导入 Win 桌面端「数据管理 - 导入互通数据包」，反之亦然。</div>' +
+      '<div class="sub" style="margin-bottom:10px;">导出含全部业务数据与现场照片的 JSON 包；可导入 Win 桌面端「数据管理 - 导入互通数据包」，反之亦然。导出时可设置加密密码保护数据。</div>' +
       '<button class="btn block primary" data-act="export-pkg" style="margin-bottom:10px;">导出数据包</button>' +
       '<button class="btn block" data-act="import-pkg">导入数据包</button></div>' +
       '<div class="card"><div class="section-title">数据维护</div>' +
@@ -621,7 +621,7 @@
     if (!t) return;
     var act = t.getAttribute("data-act");
     if (act === "changepw") return changePwForm();
-    if (act === "export-pkg") return doExport();
+    if (act === "export-pkg") return exportPkgForm();
     if (act === "import-pkg") { importInput.value = ""; importInput.click(); return; }
     if (act === "clear-data") return confirmSheet("清空数据", "将删除本机全部客户、备件、流水、工单与照片，不可恢复。", function () {
       DB.clearBusiness().then(function () { toast("已清空"); renderSettings(); });
@@ -642,16 +642,67 @@
         };
       });
   }
-  function doExport() {
-    DB.exportPackage().then(function (pkg) {
+  function doExport(password) {
+    DB.exportPackage(password || null).then(function (pkg) {
       var blob = new Blob([JSON.stringify(pkg, null, 2)], { type: "application/json" });
       var a = document.createElement("a");
       var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
       a.href = URL.createObjectURL(blob);
-      a.download = "史河售后数据包_" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + ".json";
+      a.download = "史河售后数据包_" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
+        (password ? "_加密" : "") + ".json";
       document.body.appendChild(a); a.click(); a.remove();
-      toast("已导出数据包");
-    });
+      toast(password ? "已导出（已加密）" : "已导出（未加密）");
+    }).catch(function (err) { toast("导出失败：" + err.message); });
+  }
+  // 导出时询问是否加密（可选密码）
+  function exportPkgForm() {
+    openSheet(
+      "<h3>导出数据包</h3>" +
+      '<div class="sub" style="margin-bottom:8px;">设置加密密码可保护数据安全；留空则不加密（任何人都能直接打开文件）。</div>' +
+      field("pw", "加密密码（可选）", "", false, false, "password") +
+      field("pw2", "确认密码", "", false, false, "password") +
+      "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
+      "<button class='btn primary' data-x='save'>导出</button></div>",
+      function (sheet, ov) {
+        $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+        $("[data-x=save]", sheet).onclick = function () {
+          var a = val(sheet, "pw"), b = val(sheet, "pw2");
+          if (a && a.length < 4) { toast("密码至少 4 位"); return; }
+          if (a !== b) { toast("两次输入不一致"); return; }
+          closeSheet(ov);
+          doExport(a || null);
+        };
+      }
+    );
+  }
+  // 导入加密包时索取密码
+  function importPkgForm(pkg) {
+    if (pkg.encrypted) {
+      openSheet(
+        "<h3>输入密码</h3>" +
+        '<div class="sub" style="margin-bottom:8px;">该数据包已加密，请输入导出时设置的密码。</div>' +
+        field("pw", "密码", "", false, false, "password") +
+        "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
+        "<button class='btn primary' data-x='save'>导入</button></div>",
+        function (sheet, ov) {
+          $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+          $("[data-x=save]", sheet).onclick = function () {
+            var pw = val(sheet, "pw");
+            if (!pw) { toast("请输入密码"); return; }
+            closeSheet(ov);
+            DB.importPackage(pkg, pw).then(function () {
+              toast("导入成功，已与 Win 桌面端数据合并/覆盖");
+              go("home");
+            }).catch(function (err) { toast("导入失败：" + err.message); });
+          };
+        }
+      );
+      return;
+    }
+    DB.importPackage(pkg, null).then(function () {
+      toast("导入成功，已与 Win 桌面端数据合并/覆盖");
+      go("home");
+    }).catch(function (err) { toast("导入失败：" + err.message); });
   }
   importInput.addEventListener("change", function () {
     var f = importInput.files && importInput.files[0];
@@ -660,10 +711,8 @@
     fr.onload = function () {
       try {
         var pkg = JSON.parse(fr.result);
-        DB.importPackage(pkg).then(function () {
-          toast("导入成功，已与 Win 桌面端数据合并/覆盖");
-          go("home");
-        }).catch(function (err) { toast("导入失败：" + err.message); });
+        if (!pkg || pkg.format !== "shihe-package") { toast("不是有效的史河互通数据包"); return; }
+        importPkgForm(pkg);
       } catch (err) { toast("文件不是有效 JSON"); }
     };
     fr.readAsText(f);

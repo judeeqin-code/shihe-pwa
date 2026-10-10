@@ -159,41 +159,58 @@
   }
 
   // ---- 互通数据包 ----
-  function exportPackage() {
+  function exportPackage(password) {
     return Promise.all(EXPORT_TABLES.map(function (s) {
       return getAll(s).then(function (rows) { return [s, rows]; });
     })).then(function (pairs) {
       var data = {};
       pairs.forEach(function (p) { data[p[0]] = p[1]; });
-      return {
+      var meta = {
         format: PACKAGE_FORMAT,
         version: PACKAGE_VERSION,
         exported_at: new Date().toISOString(),
         source: "pwa",
         app: "史河科技售后服务管理系统",
-        note: "本文件可通过 Win 桌面端的「数据管理-导入互通数据包」直接载入，反之亦然。",
-        data: data
+        note: "本文件可通过 Win 桌面端的「数据管理-导入互通数据包」直接载入，反之亦然。"
       };
+      if (password) {
+        return ShiHeCrypto.encryptData(data, password).then(function (env) {
+          // 加密信封叠加元数据（format/version/encrypted/kdf/cipher/payload 由 Crypto 提供）
+          env.exported_at = meta.exported_at;
+          env.source = meta.source;
+          env.app = meta.app;
+          env.note = meta.note;
+          return env;
+        });
+      }
+      return Object.assign(meta, { data: data });
     });
   }
 
-  function importPackage(pkg) {
+  function importPackage(pkg, password) {
     if (!pkg || pkg.format !== PACKAGE_FORMAT) {
       throw new Error("文件格式不正确（不是史河互通数据包）");
     }
-    var data = pkg.data || {};
-    // 整体覆盖业务表（快照替换）：先清空，再写入
-    return Promise.all(EXPORT_TABLES.map(function (s) {
-      return clearStore(s).then(function () {
-        var rows = data[s] || [];
-        return Promise.all(rows.map(function (r) {
-          if (r.id === undefined || r.id === null) {
-            return nextId(s).then(function (id) { r.id = id; return put(s, r); });
-          }
-          return put(s, r);
-        }));
-      });
-    })).then(function () { return true; });
+    if (pkg.encrypted && !password) {
+      throw new Error("该数据包已加密，请在导入时输入密码");
+    }
+    var get = pkg.encrypted
+      ? ShiHeCrypto.decryptData(pkg, password)
+      : Promise.resolve(pkg.data || {});
+    return get.then(function (data) {
+      // 整体覆盖业务表（快照替换）：先清空，再写入
+      return Promise.all(EXPORT_TABLES.map(function (s) {
+        return clearStore(s).then(function () {
+          var rows = data[s] || [];
+          return Promise.all(rows.map(function (r) {
+            if (r.id === undefined || r.id === null) {
+              return nextId(s).then(function (id) { r.id = id; return put(s, r); });
+            }
+            return put(s, r);
+          }));
+        });
+      })).then(function () { return true; });
+    });
   }
 
   function clearBusiness() {
