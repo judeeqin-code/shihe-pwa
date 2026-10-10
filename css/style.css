@@ -121,6 +121,14 @@ body {
 .sheet .actions { display: flex; gap: 10px; margin-top: 16px; }
 .sheet .actions .btn { flex: 1; }
 
+/* 导出进度转圈 */
+.spinner {
+  width: 38px; height: 38px; margin: 4px auto 0;
+  border: 4px solid #e3e8f0; border-top-color: var(--primary);
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* 统计卡 */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .stat { background: var(--card); border-radius: 12px; padding: 14px;

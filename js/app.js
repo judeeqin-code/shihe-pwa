@@ -642,17 +642,119 @@
         };
       });
   }
-  function doExport(password) {
-    DB.exportPackage(password || null).then(function (pkg) {
-      var blob = new Blob([JSON.stringify(pkg, null, 2)], { type: "application/json" });
+  // ---------------- 导出（Worker 后台执行，避免卡死）----------------
+  var exportProgressOv = null;
+  var lastExport = null; // { blob, file, name, size }
+
+  function createExportWorker() {
+    try {
+      var base = location.pathname.replace(/[^/]*$/, "");
+      return new Worker(base + "js/export_worker.js");
+    } catch (e) { return null; }
+  }
+  function showExportProgress() {
+    if (exportProgressOv) return;
+    var ov = document.createElement("div");
+    ov.className = "overlay";
+    ov.innerHTML = '<div class="sheet" style="text-align:center;">' +
+      '<div class="spinner"></div>' +
+      '<div class="section-title" style="margin-top:14px;">正在生成数据包…</div>' +
+      '<div class="sub">含现场照片时可能需要几秒，请稍候。</div></div>';
+    overlayRoot.appendChild(ov);
+    exportProgressOv = ov;
+  }
+  function hideExportProgress() {
+    if (exportProgressOv && exportProgressOv.parentNode) exportProgressOv.parentNode.removeChild(exportProgressOv);
+    exportProgressOv = null;
+  }
+  function formatSize(b) {
+    if (b < 1024) return b + " B";
+    if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+    return (b / 1048576).toFixed(2) + " MB";
+  }
+  function buildExportFile(json, password) {
+    var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
+    var name = "史河售后数据包_" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
+      (password ? "_加密" : "") + ".json";
+    var blob = new Blob([json], { type: "application/json" });
+    var file = new File([blob], name, { type: "application/json" });
+    return { name: name, blob: blob, file: file, size: formatSize(blob.size) };
+  }
+  function triggerDownload(json, password) {
+    var f = buildExportFile(json, password);
+    lastExport = f;
+    function showResult(shared) { showExportResult(f.name, f.size, shared); }
+    if (navigator.canShare && navigator.canShare({ files: [f.file] })) {
+      navigator.share({ files: [f.file], title: "史河售后数据包" })
+        .then(function () { showResult(true); })
+        .catch(function () { showResult(false); });
+    } else {
       var a = document.createElement("a");
-      var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; };
-      a.href = URL.createObjectURL(blob);
-      a.download = "史河售后数据包_" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
-        (password ? "_加密" : "") + ".json";
+      a.href = URL.createObjectURL(f.blob);
+      a.download = f.name;
       document.body.appendChild(a); a.click(); a.remove();
-      toast(password ? "已导出（已加密）" : "已导出（未加密）");
-    }).catch(function (err) { toast("导出失败：" + err.message); });
+      showResult(false);
+    }
+  }
+  function showExportResult(name, size, shared) {
+    var loc = shared
+      ? "已通过系统分享/保存面板导出，请在所选位置（如「文件」App、网盘等）查找。"
+      : "已保存到浏览器「下载」目录；手机可在「文件」App 或「下载」中查找，桌面端在浏览器下载目录查找。";
+    var html =
+      "<h3>导出完成</h3>" +
+      '<div class="field"><label>文件名</label><div class="meta">' + esc(name) + "</div></div>" +
+      '<div class="sub">大小：' + esc(size) + "</div>" +
+      '<div class="sub" style="margin-top:6px;">' + loc + "</div>" +
+      "<div class='actions'>" +
+      (navigator.canShare ? "<button class='btn ghost' data-x='share'>分享/另存到…</button>" : "") +
+      "<button class='btn primary' data-x='ok'>知道了</button></div>";
+    openSheet(html, function (sheet, ov) {
+      var ok = $("[data-x=ok]", sheet);
+      if (ok) ok.onclick = function () { closeSheet(ov); };
+      var sh = $("[data-x=share]", sheet);
+      if (sh) sh.onclick = function () {
+        if (lastExport && navigator.canShare && navigator.canShare({ files: [lastExport.file] })) {
+          navigator.share({ files: [lastExport.file], title: "史河售后数据包" }).catch(function () {});
+        }
+      };
+    });
+  }
+  function doExport(password) {
+    showExportProgress();
+    DB.gatherPackageData().then(function (pkg) {
+      var worker = createExportWorker();
+      if (!worker) { finishExportMain(pkg, password); return; }
+      worker.onmessage = function (ev) {
+        if (ev.data.type === "done") {
+          worker.terminate();
+          hideExportProgress();
+          triggerDownload(ev.data.json, password);
+        } else if (ev.data.type === "error") {
+          worker.terminate();
+          hideExportProgress();
+          toast("导出失败：" + ev.data.message);
+        }
+      };
+      worker.onerror = function () {
+        worker.terminate();
+        hideExportProgress();
+        finishExportMain(pkg, password); // Worker 不可用时退回主线程（已修 O(N) 不会卡死）
+      };
+      worker.postMessage({ type: "export", pkg: pkg, password: password || null });
+    }).catch(function (err) {
+      hideExportProgress();
+      toast("导出失败：" + err.message);
+    });
+  }
+  // Worker 不可用时的主线程兜底（keystream 已改为 O(N)，不会卡死）
+  function finishExportMain(pkg, password) {
+    DB.exportPackage(password || null).then(function (epkg) {
+      hideExportProgress();
+      triggerDownload(JSON.stringify(epkg, null, 2), password);
+    }).catch(function (err) {
+      hideExportProgress();
+      toast("导出失败：" + err.message);
+    });
   }
   // 导出时询问是否加密（可选密码）
   function exportPkgForm() {

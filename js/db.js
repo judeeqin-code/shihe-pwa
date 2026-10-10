@@ -159,31 +159,38 @@
   }
 
   // ---- 互通数据包 ----
-  function exportPackage(password) {
+  // 仅收集业务数据（不加密），供导出 Worker 在独立线程完成序列化/加密，避免界面卡死
+  function gatherPackageData() {
     return Promise.all(EXPORT_TABLES.map(function (s) {
       return getAll(s).then(function (rows) { return [s, rows]; });
     })).then(function (pairs) {
       var data = {};
       pairs.forEach(function (p) { data[p[0]] = p[1]; });
-      var meta = {
+      return {
         format: PACKAGE_FORMAT,
         version: PACKAGE_VERSION,
         exported_at: new Date().toISOString(),
         source: "pwa",
         app: "史河科技售后服务管理系统",
-        note: "本文件可通过 Win 桌面端的「数据管理-导入互通数据包」直接载入，反之亦然。"
+        note: "本文件可通过 Win 桌面端的「数据管理-导入互通数据包」直接载入，反之亦然。",
+        data: data
       };
+    });
+  }
+
+  function exportPackage(password) {
+    return gatherPackageData().then(function (pkg) {
       if (password) {
-        return ShiHeCrypto.encryptData(data, password).then(function (env) {
+        return ShiHeCrypto.encryptData(pkg.data, password).then(function (env) {
           // 加密信封叠加元数据（format/version/encrypted/kdf/cipher/payload 由 Crypto 提供）
-          env.exported_at = meta.exported_at;
-          env.source = meta.source;
-          env.app = meta.app;
-          env.note = meta.note;
+          env.exported_at = pkg.exported_at;
+          env.source = pkg.source;
+          env.app = pkg.app;
+          env.note = pkg.note;
           return env;
         });
       }
-      return Object.assign(meta, { data: data });
+      return pkg;
     });
   }
 
@@ -260,6 +267,7 @@
     clearStore: clearStore, count: count, stats: stats, nextId: nextId,
     seedDefaultUser: seedDefaultUser, verifyLogin: verifyLogin,
     changePassword: changePassword, exportPackage: exportPackage,
+    gatherPackageData: gatherPackageData,
     importPackage: importPackage, clearBusiness: clearBusiness,
     now: now, hashPassword: hashPassword, fileToDataURL: fileToDataURL,
     PACKAGE_FORMAT: PACKAGE_FORMAT, EXPORT_TABLES: EXPORT_TABLES

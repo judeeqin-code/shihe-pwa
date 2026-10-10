@@ -59,22 +59,38 @@
       });
   }
 
+  // 密钥流：SHA256(key || uint64(i)) 每 32 字节一块（与 Python 端完全一致）。
+  // 预分配输出 + 分块批量计算 + 每块让出事件循环，避免 O(N^2) 拷贝导致界面卡死。
   function keystream(key, length) {
-    var out = new Uint8Array(0);
+    var out = new Uint8Array(length);
+    if (length === 0) return Promise.resolve(out);
+    var BLOCK = 32;
+    var CHUNK = 65536;                 // 每块 64KB 一次性批量哈希
+    var blocksPerChunk = CHUNK / BLOCK; // 2048
+    var totalChunks = Math.ceil(length / CHUNK);
     var c = 0;
-    function step() {
-      if (out.length >= length) return Promise.resolve(out.slice(0, length));
-      var buf = concatBytes(key, counterBytes(c));
-      return getCrypto().subtle.digest("SHA-256", buf).then(function (hash) {
-        var h = new Uint8Array(hash);
-        var merged = new Uint8Array(out.length + h.length);
-        merged.set(out, 0); merged.set(h, out.length);
-        out = merged;
+    function doChunk() {
+      if (c >= totalChunks) return Promise.resolve(out);
+      var start = c * CHUNK;
+      var end = Math.min(start + CHUNK, length);
+      var nBlocks = Math.ceil((end - start) / BLOCK);
+      var jobs = [];
+      for (var b = 0; b < nBlocks; b++) {
+        var globalIdx = c * blocksPerChunk + b;
+        jobs.push(getCrypto().subtle.digest("SHA-256", concatBytes(key, counterBytes(globalIdx))));
+      }
+      return Promise.all(jobs).then(function (hashes) {
+        var pos = start;
+        for (var i = 0; i < hashes.length && pos < end; i++) {
+          var h = new Uint8Array(hashes[i]);
+          for (var k = 0; k < h.length && pos < end; k++) out[pos++] = h[k];
+        }
         c++;
-        return step();
+        // 每处理一块让出主线程，保持界面可响应（即使在主线程运行也不会卡死）
+        return new Promise(function (r) { setTimeout(r, 0); }).then(doChunk);
       });
     }
-    return step();
+    return doChunk();
   }
 
   function importHmacKey(keyBytes) {

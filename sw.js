@@ -1,9 +1,9 @@
 /* 史河科技 PWA Service Worker：离线缓存所有静态资源 */
-const CACHE = "shihe-pwa-v2";
+const CACHE = "shihe-pwa-v3";
 const ASSETS = [
   ".", "index.html", "manifest.webmanifest",
   "css/style.css",
-  "js/crypto.js", "js/db.js", "js/app.js",
+  "js/crypto.js", "js/db.js", "js/app.js", "js/export_worker.js",
   "icons/icon-96.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon-512-maskable.png"
 ];
 
