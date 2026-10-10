@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1F4E79" />
+  <title>史河科技 · 售后服务</title>
+  <link rel="manifest" href="manifest.webmanifest" type="application/manifest+json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="96x96" href="icons/icon-96.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="header" id="header">
+      <img class="logo" src="icons/icon-96.png" alt="logo" />
+      <span class="title" id="headerTitle">史河科技</span>
+      <button class="hbtn" id="headerAction" style="display:none"></button>
+    </div>
+
+    <div class="content" id="content"></div>
+
+    <nav class="nav" id="nav">
+      <a data-route="home"><span class="ic">▣</span>首页</a>
+      <a data-route="customers"><span class="ic">☷</span>客户</a>
+      <a data-route="parts"><span class="ic">▤</span>备件</a>
+      <a data-route="tickets"><span class="ic">✎</span>工单</a>
+      <a data-route="settings"><span class="ic">⚙</span>我的</a>
+    </nav>
+
+    <!-- 隐藏的相机/相册/导入选择器 -->
+    <input type="file" id="camInput" accept="image/*" capture="environment" class="hidden" />
+    <input type="file" id="albumInput" accept="image/*" class="hidden" />
+    <input type="file" id="importInput" accept="application/json,.json" class="hidden" />
+  </div>
+
+  <div id="overlayRoot"></div>
+  <div id="toastRoot"></div>
+
+  <script src="js/db.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
