@@ -167,7 +167,7 @@
       }).join("");
     });
   }
-  function customerForm(rec) {
+  function customerForm(rec, onSaved) {
     var isEdit = !!rec;
     openSheet(
       "<h3>" + (isEdit ? "编辑客户" : "新增客户") + "</h3>" +
@@ -192,7 +192,7 @@
           if (isEdit) { data.id = rec.id; p = DB.put("customers", data); }
           else { p = DB.nextId("customers").then(function (id) {
             data.id = id; data.created_at = DB.now(); return DB.put("customers", data); }); }
-          p.then(function () { closeSheet(ov); renderCustomers(); toast("已保存"); });
+          p.then(function () { closeSheet(ov); if (onSaved) onSaved(); else renderCustomers(); toast("已保存"); });
         };
       }
     );
@@ -252,7 +252,7 @@
     fab.className = "fab"; fab.textContent = "＋"; fab.setAttribute("data-act", "add-move");
     content.appendChild(fab);
   }
-  function partForm(rec) {
+  function partForm(rec, onSaved) {
     var isEdit = !!rec;
     openSheet(
       "<h3>" + (isEdit ? "编辑备件" : "新增备件") + "</h3>" +
@@ -283,21 +283,21 @@
           else { p = DB.nextId("parts").then(function (id) {
             data.id = id; data.created_at = DB.now(); data.updated_at = DB.now();
             return DB.put("parts", data); }); }
-          p.then(function () { closeSheet(ov); renderParts(); toast("已保存"); });
+          p.then(function () { closeSheet(ov); if (onSaved) onSaved(); else renderParts(); toast("已保存"); });
         };
       }
     );
   }
   function moveForm() {
     DB.getAll("parts").then(function (parts) {
-      var opts = parts.map(function (p) { return '<option value="' + esc(p.part_no) + '">' +
-        esc(p.part_name) + " [" + esc(p.part_no) + "]</option>"; }).join("");
+      var opts = partOptionsHtml(parts, null);
       var types = ["采购入库", "退库入库", "售后领用出库", "工程领用出库", "销售出库", "报废出库", "盘亏出库"];
       var topts = types.map(function (t) { return '<option value="' + t + '">' + t + "</option>"; }).join("");
       openSheet(
         "<h3>登记出入库</h3>" +
         '<div class="field"><label>出入库类型</label><select id="f_t">' + topts + "</select></div>" +
-        '<div class="field"><label>选择部件</label><select id="f_p">' + (opts || "<option>请先登记备件</option>") + "</select></div>" +
+        '<div class="field"><label>选择部件</label><select id="f_p">' + opts + "</select></div>" +
+        '<div style="margin:-6px 0 12px;"><button class="btn sm ghost" data-x="add-part">＋ 登记备件</button></div>' +
         field("qty", "数量", "1", false, false, "number") +
         field("operator", "经办人", user ? user.display_name : "") +
         field("ticket_no", "关联工单号", "") +
@@ -306,29 +306,39 @@
         "<button class='btn primary' data-x='save'>登记</button></div>",
         function (sheet, ov) {
           $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+          $("[data-x=add-part]", sheet).onclick = function () {
+            partForm(null, function () {
+              DB.getAll("parts").then(function (ps) {
+                var sel = $("#f_p", ov.querySelector(".sheet"));
+                if (sel) sel.innerHTML = partOptionsHtml(ps, sel.value);
+              });
+            });
+          };
           $("[data-x=save]", sheet).onclick = function () {
-            if (!parts.length) { toast("请先在库存台账登记部件"); return; }
             var move_type = $("#f_t", sheet).value, part_no = $("#f_p", sheet).value;
             var qty = parseFloat(val(sheet, "qty") || 0);
             if (qty <= 0) { toast("数量需大于 0"); return; }
-            var part = parts.filter(function (p) { return p.part_no === part_no; })[0];
-            var direction = /入库/.test(move_type) ? "in" : "out";
-            if (direction === "out" && parseFloat(part.quantity) < qty) { toast("库存不足"); return; }
-            var delta = direction === "in" ? qty : -qty;
-            var balance = parseFloat(part.quantity) + delta;
-            DB.nextId("stock_moves").then(function (id) {
-              return DB.put("stock_moves", {
-                id: id, move_no: genNo("IO", "stock_moves"), part_id: part.id,
-                device_model: part.device_model, part_name: part.part_name, part_no: part.part_no,
-                spec: part.spec, drawing_no: part.drawing_no, direction: direction,
-                move_type: move_type, qty: qty, balance: balance, ticket_no: val(sheet, "ticket_no"),
-                customer: "", operator: val(sheet, "operator"), move_time: DB.now(),
-                note: val(sheet, "note"), created_at: DB.now()
-              }).then(function () {
-                part.quantity = balance; part.updated_at = DB.now();
-                return DB.put("parts", part);
-              });
-            }).then(function () { closeSheet(ov); renderParts(); toast("已登记，结存 " + balance); });
+            DB.getAll("parts").then(function (ps) {
+              var part = ps.filter(function (p) { return p.part_no === part_no; })[0];
+              if (!part) { toast("请先在库存台账登记部件"); return; }
+              var direction = /入库/.test(move_type) ? "in" : "out";
+              if (direction === "out" && parseFloat(part.quantity) < qty) { toast("库存不足"); return; }
+              var delta = direction === "in" ? qty : -qty;
+              var balance = parseFloat(part.quantity) + delta;
+              DB.nextId("stock_moves").then(function (id) {
+                return DB.put("stock_moves", {
+                  id: id, move_no: genNo("IO", "stock_moves"), part_id: part.id,
+                  device_model: part.device_model, part_name: part.part_name, part_no: part.part_no,
+                  spec: part.spec, drawing_no: part.drawing_no, direction: direction,
+                  move_type: move_type, qty: qty, balance: balance, ticket_no: val(sheet, "ticket_no"),
+                  customer: "", operator: val(sheet, "operator"), move_time: DB.now(),
+                  note: val(sheet, "note"), created_at: DB.now()
+                }).then(function () {
+                  part.quantity = balance; part.updated_at = DB.now();
+                  return DB.put("parts", part);
+                });
+              }).then(function () { closeSheet(ov); renderParts(); toast("已登记，结存 " + balance); });
+            });
           };
         }
       );
@@ -380,15 +390,20 @@
   function ticketForm(rec) {
     var isEdit = !!rec;
     DB.getAll("customers").then(function (custs) {
-      var copts = '<option value="">— 选择客户 —</option>' +
-        custs.map(function (c) { return '<option value="' + esc(c.name) + '">' + esc(c.name) + "</option>"; }).join("");
+      var copts = custOptionsHtml(custs, isEdit ? rec.customer_name : null);
       openSheet(
         "<h3>" + (isEdit ? "编辑工单" : "新建工单") + "</h3>" +
         '<div class="field"><label>客户</label><select id="t_cust">' + copts + "</select></div>" +
+        '<div style="margin:-6px 0 12px;"><button class="btn sm ghost" data-x="add-cust">＋ 新增客户</button></div>' +
         field("title", "工单标题", isEdit ? rec.title : "", true) +
-        '<div class="grid2"><div>' + field("ticket_type", "类型", isEdit ? rec.ticket_type : "售后") +
-        "</div><div>" + field("service_item", "服务内容", isEdit ? rec.service_item : "球罐打磨除锈") + "</div></div>" +
-        '<div class="grid2"><div>' + field("priority", "优先级", isEdit ? rec.priority : "中") +
+        selectField("ticket_type", "类型",
+          ["售后", "安装", "调试", "维修", "保养", "巡检", "其他"],
+          isEdit ? rec.ticket_type : "售后", "选择类型") +
+        selectField("service_item", "服务内容",
+          ["球罐打磨除锈", "球罐焊缝检测", "罐体防腐涂装", "机器人保养", "现场抢修", "其他"],
+          isEdit ? rec.service_item : "球罐打磨除锈", "选择服务内容") +
+        '<div class="grid2"><div>' + selectField("priority", "优先级",
+          ["紧急", "高", "中", "低"], isEdit ? rec.priority : "中", "选择优先级") +
         "</div><div>" + field("owner", "负责人", isEdit ? rec.owner : (user ? user.display_name : "")) + "</div></div>" +
         field("site", "现场地点", isEdit ? rec.site : "") +
         field("description", "问题描述", isEdit ? rec.description : "", false, true) +
@@ -397,6 +412,14 @@
         function (sheet, ov) {
           if (isEdit && rec.customer_name) $("#t_cust", sheet).value = rec.customer_name;
           $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+          $("[data-x=add-cust]", sheet).onclick = function () {
+            customerForm(null, function () {
+              DB.getAll("customers").then(function (cs) {
+                var sel = $("#t_cust", ov.querySelector(".sheet"));
+                if (sel) sel.innerHTML = custOptionsHtml(cs, sel.value || (rec ? rec.customer_name : null));
+              });
+            });
+          };
           $("[data-x=save]", sheet).onclick = function () {
             var cust = $("#t_cust", sheet).value;
             var data = {
@@ -561,41 +584,51 @@
   function addPartForm(tid) {
     Promise.all([DB.getAll("parts"), DB.getOne("tickets", tid)]).then(function (res) {
       var parts = res[0], tk = res[1];
-      var opts = parts.map(function (p) { return '<option value="' + esc(p.part_no) + '">' +
-        esc(p.part_name) + " [" + esc(p.part_no) + "] 库存" + esc(p.quantity) + "</option>"; }).join("");
+      var opts = partOptionsHtml(parts, null);
       openSheet("<h3>工单领用备件</h3>" +
-        '<div class="field"><label>选择部件</label><select id="ap_p">' + (opts || "<option>无备件</option>") + "</select></div>" +
+        '<div class="field"><label>选择部件</label><select id="ap_p">' + opts + "</select></div>" +
+        '<div style="margin:-6px 0 12px;"><button class="btn sm ghost" data-x="add-part">＋ 登记备件</button></div>' +
         field("qty", "数量", "1", false, false, "number") +
         "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
         "<button class='btn primary' data-x='save'>领用</button></div>",
         function (sheet, ov) {
           $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+          $("[data-x=add-part]", sheet).onclick = function () {
+            partForm(null, function () {
+              DB.getAll("parts").then(function (ps) {
+                var sel = $("#ap_p", ov.querySelector(".sheet"));
+                if (sel) sel.innerHTML = partOptionsHtml(ps, sel.value);
+              });
+            });
+          };
           $("[data-x=save]", sheet).onclick = function () {
-            if (!parts.length) { toast("请先登记备件"); return; }
             var part_no = $("#ap_p", sheet).value, qty = parseFloat(val(sheet, "qty") || 0);
             if (qty <= 0) { toast("数量需大于 0"); return; }
-            var part = parts.filter(function (p) { return p.part_no === part_no; })[0];
-            if (parseFloat(part.quantity) < qty) { toast("库存不足"); return; }
-            DB.nextId("stock_moves").then(function (mid) {
-              var balance = parseFloat(part.quantity) - qty;
-              return DB.put("stock_moves", {
-                id: mid, move_no: genNo("IO", "stock_moves"), part_id: part.id,
-                device_model: part.device_model, part_name: part.part_name, part_no: part.part_no,
-                spec: part.spec, drawing_no: part.drawing_no, direction: "out", move_type: "售后领用出库",
-                qty: qty, balance: balance, ticket_no: tk ? tk.ticket_no : "",
-                customer: tk ? tk.customer_name : "", operator: user ? user.display_name : "",
-                move_time: DB.now(), note: "工单领用", created_at: DB.now()
-              }).then(function () {
-                part.quantity = balance; part.updated_at = DB.now();
-                return DB.put("parts", part).then(function () {
-                  return DB.nextId("ticket_parts").then(function (pid) {
-                    return DB.put("ticket_parts", { id: pid, ticket_id: tid, part_id: part.id,
-                      part_no: part.part_no, part_name: part.part_name, spec: part.spec,
-                      qty: qty, created_at: DB.now() });
+            DB.getAll("parts").then(function (ps) {
+              var part = ps.filter(function (p) { return p.part_no === part_no; })[0];
+              if (!part) { toast("请先登记备件"); return; }
+              if (parseFloat(part.quantity) < qty) { toast("库存不足"); return; }
+              DB.nextId("stock_moves").then(function (mid) {
+                var balance = parseFloat(part.quantity) - qty;
+                return DB.put("stock_moves", {
+                  id: mid, move_no: genNo("IO", "stock_moves"), part_id: part.id,
+                  device_model: part.device_model, part_name: part.part_name, part_no: part.part_no,
+                  spec: part.spec, drawing_no: part.drawing_no, direction: "out", move_type: "售后领用出库",
+                  qty: qty, balance: balance, ticket_no: tk ? tk.ticket_no : "",
+                  customer: tk ? tk.customer_name : "", operator: user ? user.display_name : "",
+                  move_time: DB.now(), note: "工单领用", created_at: DB.now()
+                }).then(function () {
+                  part.quantity = balance; part.updated_at = DB.now();
+                  return DB.put("parts", part).then(function () {
+                    return DB.nextId("ticket_parts").then(function (pid) {
+                      return DB.put("ticket_parts", { id: pid, ticket_id: tid, part_id: part.id,
+                        part_no: part.part_no, part_name: part.part_name, spec: part.spec,
+                        qty: qty, created_at: DB.now() });
+                    });
                   });
                 });
-              });
-            }).then(function () { closeSheet(ov); ticketDetail(tid); toast("已领用"); });
+              }).then(function () { closeSheet(ov); ticketDetail(tid); toast("已领用"); });
+            });
           };
         });
     });
@@ -835,6 +868,40 @@
   }
   function val(sheet, key) { var e = $("#f_" + key, sheet); return e ? e.value.trim() : ""; }
   function empty(t) { return '<div class="empty">' + esc(t) + "</div>"; }
+
+  // 下拉框辅助：生成带占位选项的 <select>（id = f_<key>，与 val() 配合）
+  function selectField(key, label, options, selected, placeholder) {
+    var ph = '<option value="">' + esc(placeholder || "请选择") + "</option>";
+    var opts = (options || []).map(function (o) {
+      var v = (o && typeof o === "object") ? o.value : o;
+      var t = (o && typeof o === "object") ? (o.text || o.value) : o;
+      var sel = (selected != null && String(selected) === String(v)) ? " selected" : "";
+      return '<option value="' + esc(v) + '"' + sel + ">" + esc(t) + "</option>";
+    }).join("");
+    return '<div class="field"><label>' + esc(label) + "</label>" +
+      '<select id="f_' + key + '">' + ph + opts + "</select></div>";
+  }
+  // 数据驱动下拉的 option 组装（空数据时禁用提示，而非空白）
+  function custOptionsHtml(custs, selected) {
+    var o = '<option value="">— 选择客户 —</option>';
+    (custs || []).forEach(function (c) {
+      var n = c.name || "";
+      var sel = (selected != null && selected === n) ? " selected" : "";
+      o += '<option value="' + esc(n) + '"' + sel + ">" + esc(n) + "</option>";
+    });
+    if (!custs || !custs.length) o += '<option value="" disabled>（暂无客户，请先新增）</option>';
+    return o;
+  }
+  function partOptionsHtml(parts, selected) {
+    var o = '<option value="">— 选择部件 —</option>';
+    (parts || []).forEach(function (p) {
+      var sel = (selected != null && selected === p.part_no) ? " selected" : "";
+      o += '<option value="' + esc(p.part_no) + '"' + sel + ">" + esc(p.part_name) +
+        " [" + esc(p.part_no) + "] 库存" + esc(p.quantity) + "</option>";
+    });
+    if (!parts || !parts.length) o += '<option value="" disabled>（暂无备件，请先登记）</option>';
+    return o;
+  }
 
   // ---------------- 启动 ----------------
   function boot() {
