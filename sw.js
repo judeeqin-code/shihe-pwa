@@ -1,5 +1,5 @@
 /* 史河科技 PWA Service Worker：离线缓存所有静态资源 */
-const CACHE = "shihe-pwa-v6";
+const CACHE = "shihe-pwa-v7";
 const ASSETS = [
   ".", "index.html", "manifest.webmanifest",
   "css/style.css",

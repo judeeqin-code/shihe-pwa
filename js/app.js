@@ -169,33 +169,35 @@
   }
   function customerForm(rec, onSaved) {
     var isEdit = !!rec;
-    openSheet(
-      "<h3>" + (isEdit ? "编辑客户" : "新增客户") + "</h3>" +
-      field("name", "客户名称", isEdit ? rec.name : "", true) +
-      field("industry", "行业", isEdit ? rec.industry : "") +
-      field("contact", "联系人", isEdit ? rec.contact : "") +
-      field("phone", "电话", isEdit ? rec.phone : "") +
-      field("address", "地址", isEdit ? rec.address : "") +
-      field("note", "备注", isEdit ? rec.note : "", false, true) +
-      "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
-      "<button class='btn primary' data-x='save'>保存</button></div>",
-      function (sheet, ov) {
-        $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
-        $("[data-x=save]", sheet).onclick = function () {
-          var data = {
-            name: val(sheet, "name"), industry: val(sheet, "industry"),
-            contact: val(sheet, "contact"), phone: val(sheet, "phone"),
-            address: val(sheet, "address"), note: val(sheet, "note")
+    DB.getOptions("industry").then(function (industries) {
+      openSheet(
+        "<h3>" + (isEdit ? "编辑客户" : "新增客户") + "</h3>" +
+        field("name", "客户名称", isEdit ? rec.name : "", true) +
+        selectField("industry", "行业", industries, isEdit ? rec.industry : "", "选择行业") +
+        field("contact", "联系人", isEdit ? rec.contact : "") +
+        field("phone", "电话", isEdit ? rec.phone : "") +
+        field("address", "地址", isEdit ? rec.address : "") +
+        field("note", "备注", isEdit ? rec.note : "", false, true) +
+        "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
+        "<button class='btn primary' data-x='save'>保存</button></div>",
+        function (sheet, ov) {
+          $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+          $("[data-x=save]", sheet).onclick = function () {
+            var data = {
+              name: val(sheet, "name"), industry: val(sheet, "industry"),
+              contact: val(sheet, "contact"), phone: val(sheet, "phone"),
+              address: val(sheet, "address"), note: val(sheet, "note")
+            };
+            if (!data.name) { toast("请填写客户名称"); return; }
+            var p;
+            if (isEdit) { data.id = rec.id; p = DB.put("customers", data); }
+            else { p = DB.nextId("customers").then(function (id) {
+              data.id = id; data.created_at = DB.now(); return DB.put("customers", data); }); }
+            p.then(function () { closeSheet(ov); if (onSaved) onSaved(); else renderCustomers(); toast("已保存"); });
           };
-          if (!data.name) { toast("请填写客户名称"); return; }
-          var p;
-          if (isEdit) { data.id = rec.id; p = DB.put("customers", data); }
-          else { p = DB.nextId("customers").then(function (id) {
-            data.id = id; data.created_at = DB.now(); return DB.put("customers", data); }); }
-          p.then(function () { closeSheet(ov); if (onSaved) onSaved(); else renderCustomers(); toast("已保存"); });
-        };
-      }
-    );
+        }
+      );
+    });
   }
 
   // ---------------- 备件 + 出入库 ----------------
@@ -254,44 +256,47 @@
   }
   function partForm(rec, onSaved) {
     var isEdit = !!rec;
-    openSheet(
-      "<h3>" + (isEdit ? "编辑备件" : "新增备件") + "</h3>" +
-      field("device_model", "设备型号", isEdit ? rec.device_model : "球罐打磨除锈机器人") +
-      field("part_name", "部件名称", isEdit ? rec.part_name : "", true) +
-      field("part_no", "部件料号", isEdit ? rec.part_no : "", true) +
-      '<div class="grid2"><div>' + field("spec", "规格", isEdit ? rec.spec : "") + "</div>" +
-      "<div>" + field("unit", "单位", isEdit ? (rec.unit || "件") : "件") + "</div></div>" +
-      '<div class="grid2"><div>' + field("quantity", "当前库存", isEdit ? rec.quantity : "0", false, false, "number") + "</div>" +
-      "<div>" + field("safety_stock", "安全库存", isEdit ? rec.safety_stock : "0", false, false, "number") + "</div></div>" +
-      field("location", "存放位置", isEdit ? rec.location : "") +
-      field("supplier", "供应商", isEdit ? rec.supplier : "") +
-      field("note", "备注", isEdit ? rec.note : "", false, true) +
-      "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
-      "<button class='btn primary' data-x='save'>保存</button></div>",
-      function (sheet, ov) {
-        $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
-        $("[data-x=save]", sheet).onclick = function () {
-          var data = {
-            device_model: val(sheet, "device_model"), part_name: val(sheet, "part_name"),
-            part_no: val(sheet, "part_no"), spec: val(sheet, "spec"), unit: val(sheet, "unit") || "件",
-            quantity: parseFloat(val(sheet, "quantity") || 0), safety_stock: parseFloat(val(sheet, "safety_stock") || 0),
-            location: val(sheet, "location"), supplier: val(sheet, "supplier"), note: val(sheet, "note")
+    Promise.all([DB.getOptions("device_model")]).then(function (res) {
+      var models = res[0];
+      openSheet(
+        "<h3>" + (isEdit ? "编辑备件" : "新增备件") + "</h3>" +
+        selectField("device_model", "设备型号", models, isEdit ? rec.device_model : (models[0] || ""), "选择设备型号") +
+        field("part_name", "部件名称", isEdit ? rec.part_name : "", true) +
+        field("part_no", "部件料号", isEdit ? rec.part_no : "", true) +
+        '<div class="grid2"><div>' + field("spec", "规格", isEdit ? rec.spec : "") + "</div>" +
+        "<div>" + field("unit", "单位", isEdit ? (rec.unit || "件") : "件") + "</div></div>" +
+        '<div class="grid2"><div>' + field("quantity", "当前库存", isEdit ? rec.quantity : "0", false, false, "number") + "</div>" +
+        "<div>" + field("safety_stock", "安全库存", isEdit ? rec.safety_stock : "0", false, false, "number") + "</div></div>" +
+        field("location", "存放位置", isEdit ? rec.location : "") +
+        field("supplier", "供应商", isEdit ? rec.supplier : "") +
+        field("note", "备注", isEdit ? rec.note : "", false, true) +
+        "<div class='actions'><button class='btn ghost' data-x='cancel'>取消</button>" +
+        "<button class='btn primary' data-x='save'>保存</button></div>",
+        function (sheet, ov) {
+          $("[data-x=cancel]", sheet).onclick = function () { closeSheet(ov); };
+          $("[data-x=save]", sheet).onclick = function () {
+            var data = {
+              device_model: val(sheet, "device_model"), part_name: val(sheet, "part_name"),
+              part_no: val(sheet, "part_no"), spec: val(sheet, "spec"), unit: val(sheet, "unit") || "件",
+              quantity: parseFloat(val(sheet, "quantity") || 0), safety_stock: parseFloat(val(sheet, "safety_stock") || 0),
+              location: val(sheet, "location"), supplier: val(sheet, "supplier"), note: val(sheet, "note")
+            };
+            if (!data.part_name || !data.part_no) { toast("请填写名称与料号"); return; }
+            var p;
+            if (isEdit) { data.id = rec.id; p = DB.put("parts", data); }
+            else { p = DB.nextId("parts").then(function (id) {
+              data.id = id; data.created_at = DB.now(); data.updated_at = DB.now();
+              return DB.put("parts", data); }); }
+            p.then(function () { closeSheet(ov); if (onSaved) onSaved(); else renderParts(); toast("已保存"); });
           };
-          if (!data.part_name || !data.part_no) { toast("请填写名称与料号"); return; }
-          var p;
-          if (isEdit) { data.id = rec.id; p = DB.put("parts", data); }
-          else { p = DB.nextId("parts").then(function (id) {
-            data.id = id; data.created_at = DB.now(); data.updated_at = DB.now();
-            return DB.put("parts", data); }); }
-          p.then(function () { closeSheet(ov); if (onSaved) onSaved(); else renderParts(); toast("已保存"); });
-        };
-      }
-    );
+        }
+      );
+    });
   }
   function moveForm() {
-    DB.getAll("parts").then(function (parts) {
+    Promise.all([DB.getAll("parts"), DB.getOptions("move_type")]).then(function (res) {
+      var parts = res[0], types = res[1];
       var opts = partOptionsHtml(parts, null);
-      var types = ["采购入库", "退库入库", "售后领用出库", "工程领用出库", "销售出库", "报废出库", "盘亏出库"];
       var topts = types.map(function (t) { return '<option value="' + t + '">' + t + "</option>"; }).join("");
       openSheet(
         "<h3>登记出入库</h3>" +
@@ -389,21 +394,22 @@
   }
   function ticketForm(rec) {
     var isEdit = !!rec;
-    DB.getAll("customers").then(function (custs) {
+    Promise.all([
+      DB.getAll("customers"),
+      DB.getOptions("ticket_type"),
+      DB.getOptions("service_item"),
+      DB.getOptions("ticket_priority")
+    ]).then(function (res) {
+      var custs = res[0], types = res[1], items = res[2], pris = res[3];
       var copts = custOptionsHtml(custs, isEdit ? rec.customer_name : null);
       openSheet(
         "<h3>" + (isEdit ? "编辑工单" : "新建工单") + "</h3>" +
         '<div class="field"><label>客户</label><select id="t_cust">' + copts + "</select></div>" +
         '<div style="margin:-6px 0 12px;"><button class="btn sm ghost" data-x="add-cust">＋ 新增客户</button></div>' +
         field("title", "工单标题", isEdit ? rec.title : "", true) +
-        selectField("ticket_type", "类型",
-          ["售后", "安装", "调试", "维修", "保养", "巡检", "其他"],
-          isEdit ? rec.ticket_type : "售后", "选择类型") +
-        selectField("service_item", "服务内容",
-          ["球罐打磨除锈", "球罐焊缝检测", "罐体防腐涂装", "机器人保养", "现场抢修", "其他"],
-          isEdit ? rec.service_item : "球罐打磨除锈", "选择服务内容") +
-        '<div class="grid2"><div>' + selectField("priority", "优先级",
-          ["紧急", "高", "中", "低"], isEdit ? rec.priority : "中", "选择优先级") +
+        selectField("ticket_type", "类型", types, isEdit ? rec.ticket_type : (types[0] || ""), "选择类型") +
+        selectField("service_item", "服务内容", items, isEdit ? rec.service_item : (items[0] || ""), "选择服务内容") +
+        '<div class="grid2"><div>' + selectField("priority", "优先级", pris, isEdit ? rec.priority : (pris[1] || "中"), "选择优先级") +
         "</div><div>" + field("owner", "负责人", isEdit ? rec.owner : (user ? user.display_name : "")) + "</div></div>" +
         field("site", "现场地点", isEdit ? rec.site : "") +
         field("description", "问题描述", isEdit ? rec.description : "", false, true) +
@@ -719,6 +725,9 @@
       '<div class="sub" style="margin-bottom:10px;">导出含全部业务数据与现场照片的 JSON 包；可导入 Win 桌面端「数据管理 - 导入互通数据包」，反之亦然。导出时可设置加密密码保护数据。</div>' +
       '<button class="btn block primary" data-act="export-pkg" style="margin-bottom:10px;">导出数据包</button>' +
       '<button class="btn block" data-act="import-pkg">导入数据包</button></div>' +
+      '<div class="card"><div class="section-title">基础选项</div>' +
+      '<div class="sub" style="margin-bottom:10px;">服务内容、工单类型、优先级、出入库类型、设备型号、客户行业、满意度等下拉项，与 Win 桌面端共用同一套默认值，可在此维护。</div>' +
+      '<button class="btn block" data-act="manage-options">管理基础选项</button></div>' +
       '<div class="card"><div class="section-title">数据维护</div>' +
       '<button class="btn block danger" data-act="clear-data">清空本机全部业务数据</button></div>' +
       '<div class="card"><div class="sub">史河科技 · 售后工程服务管理系统 · 移动端 PWA<br>离线可用，可「添加到主屏幕」像 App 使用。</div></div>';
@@ -728,12 +737,76 @@
     if (!t) return;
     var act = t.getAttribute("data-act");
     if (act === "changepw") return changePwForm();
+    if (act === "manage-options") return optionsForm();
     if (act === "export-pkg") return exportPkgForm();
     if (act === "import-pkg") { importInput.value = ""; importInput.click(); return; }
     if (act === "clear-data") return confirmSheet("清空数据", "将删除本机全部客户、备件、流水、工单与照片，不可恢复。", function () {
       DB.clearBusiness().then(function () { toast("已清空"); renderSettings(); });
     }, true);
   });
+  var OPTION_LABELS = {
+    device_model: "设备型号", service_item: "服务内容", ticket_type: "工单类型",
+    ticket_status: "工单状态", ticket_priority: "优先级", move_type: "出入库类型",
+    industry: "客户行业", satisfaction: "满意度"
+  };
+  function optionsForm() {
+    var cats = Object.keys(OPTION_LABELS);
+    var cat = cats[0];
+    function refresh(sheet, ov) {
+      DB.getAll("options").then(function (rows) {
+        var list = rows.filter(function (r) { return r.category === cat; })
+          .sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); });
+        var html = list.map(function (r) {
+          return '<div class="bar"><span class="meta" style="flex:1;">' + esc(r.value) + '</span>' +
+            '<button class="btn danger sm" data-x="del-opt" data-id="' + r.id + '">删除</button></div>';
+        }).join("");
+        if (!list.length) html = '<div class="sub">暂无选项，将使用默认值（' +
+          (DB.DEFAULT_OPTIONS[cat] || []).join(" / ") + '）</div>';
+        $(".opts-list", sheet).innerHTML = html;
+        $(".cat-title", sheet).textContent = OPTION_LABELS[cat];
+      });
+    }
+    openSheet(
+      '<h3>基础选项：<span class="cat-title">' + OPTION_LABELS[cat] + '</span></h3>' +
+      '<div class="field"><label>选项类别</label><select id="f_cat">' +
+      cats.map(function (c) { return '<option value="' + c + '">' + OPTION_LABELS[c] + '</option>'; }).join("") +
+      '</select></div>' +
+      '<div class="opts-list" style="margin:10px 0;"></div>' +
+      '<div class="bar"><input id="f_new" type="text" placeholder="新增选项" style="flex:1;padding:10px;border:1px solid var(--line);border-radius:8px;">' +
+      '<button class="btn primary" data-x="add-opt">添加</button></div>' +
+      "<div class='actions'><button class='btn ghost' data-x='close'>关闭</button></div>",
+      function (sheet, ov) {
+        refresh(sheet, ov);
+        $("#f_cat", sheet).onchange = function () { cat = this.value; refresh(sheet, ov); };
+        $("[data-x=close]", sheet).onclick = function () { closeSheet(ov); };
+        $("[data-x=add-opt]", sheet).onclick = function () {
+          var v = $("#f_new", sheet).value.trim();
+          if (!v) { toast("请输入选项内容"); return; }
+          DB.getAll("options").then(function (rows) {
+            var exists = rows.some(function (r) { return r.category === cat && r.value === v; });
+            if (exists) { toast("该选项已存在"); return; }
+            var maxId = 0, sort = 0;
+            rows.forEach(function (r) {
+              if (r.id > maxId) maxId = r.id;
+              if (r.category === cat && (r.sort || 0) >= sort) sort = (r.sort || 0) + 1;
+            });
+            return DB.put("options", { id: maxId + 1, category: cat, value: v, sort: sort });
+          }).then(function () {
+            $("#f_new", sheet).value = ""; refresh(sheet, ov); toast("已添加");
+          });
+        };
+        sheet.addEventListener("click", function (e) {
+          var btn = e.target.closest("[data-x=del-opt]");
+          if (!btn) return;
+          var id = parseInt(btn.getAttribute("data-id"), 10);
+          confirmSheet("删除选项", "确定删除该选项？", function () {
+            DB.del("options", id).then(function () { refresh(sheet, ov); toast("已删除"); });
+          }, true);
+        });
+      }
+    );
+  }
+
   function changePwForm() {
     openSheet("<h3>修改密码</h3>" + field("pw", "新密码", "", false, false, "password") +
       field("pw2", "确认新密码", "", false, false, "password") +

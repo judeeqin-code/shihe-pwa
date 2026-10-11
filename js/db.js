@@ -5,20 +5,32 @@
   "use strict";
 
   var DB_NAME = "shihe_pwa";
-  var DB_VERSION = 1;
+  var DB_VERSION = 2;
   // 这些表的 id 被其他表引用（如 ticket_parts.ticket_id、ticket_photos.ticket_id、
   // stock_moves.part_id），必须使用 keyPath='id' 并在导入时保留原 id，才能维持关联。
   var STORES = [
     "customers", "parts", "stock_moves", "tickets",
-    "ticket_parts", "ticket_logs", "ticket_photos", "users", "settings"
+    "ticket_parts", "ticket_logs", "ticket_photos", "users", "settings", "options"
   ];
+
+  // 与 Win 桌面端保持一致的基础选项默认值（用户可在「设置-基础选项」中维护）
+  var DEFAULT_OPTIONS = {
+    device_model: ["球罐打磨除锈机器人", "球罐防腐喷涂机器人", "球罐检测机器人", "磁吸附爬壁机器人", "真空吸附爬壁机器人", "通用爬壁机器人平台", "其他/定制"],
+    service_item: ["球罐打磨除锈", "防腐喷涂施工", "焊缝检测", "壁厚检测", "设备维修", "安装调试", "巡检保养", "技术培训", "售前演示", "方案咨询"],
+    ticket_type: ["售前", "售后", "工程服务", "培训"],
+    ticket_status: ["待处理", "处理中", "已挂起", "已完成", "已关闭"],
+    ticket_priority: ["低", "中", "高", "紧急"],
+    move_type: ["采购入库", "退库入库", "维修返还入库", "盘盈入库", "调拨入库", "售后领用出库", "工程领用出库", "销售出库", "报废出库", "盘亏出库", "调拨出库"],
+    industry: ["石油化工", "船舶制造", "电力能源", "钢结构", "储罐仓储", "市政环保", "其他"],
+    satisfaction: ["未评价", "非常满意", "满意", "一般", "不满意"]
+  };
 
   var PACKAGE_FORMAT = "shihe-package";
   var PACKAGE_VERSION = 1;
   // 互通导出包含的业务表（不含 users/operation_log，避免覆盖对方账号与审计）
   var EXPORT_TABLES = [
     "customers", "parts", "stock_moves", "tickets",
-    "ticket_parts", "ticket_logs", "ticket_photos", "settings"
+    "ticket_parts", "ticket_logs", "ticket_photos", "settings", "options"
   ];
 
   var _dbp = null;
@@ -34,7 +46,10 @@
           }
         });
       };
-      req.onsuccess = function () { resolve(req.result); };
+      req.onsuccess = function () {
+        var db = req.result;
+        initOptions(db).catch(function (e) { console.error("initOptions failed", e); }).then(function () { resolve(db); });
+      };
       req.onerror = function () { reject(req.error); };
     });
     return _dbp;
@@ -118,6 +133,72 @@
       });
       return m + 1;
     });
+  }
+
+  // ---- 基础选项（与 Win 端 options 表同步） ----
+  function initOptions(db) {
+    return new Promise(function (resolve, reject) {
+      var t = db.transaction("options", "readwrite");
+      t.oncomplete = function () { resolve(); };
+      t.onerror = function () { reject(t.error); };
+      var store = t.objectStore("options");
+      var req = store.getAll();
+      req.onsuccess = function () {
+        var existing = req.result || [];
+        var cats = {};
+        var maxId = 0;
+        existing.forEach(function (r) {
+          if (r.category) cats[r.category] = true;
+          if (typeof r.id === "number" && r.id > maxId) maxId = r.id;
+          else if (typeof r.id === "string" && /^\d+$/.test(r.id) && parseInt(r.id, 10) > maxId) maxId = parseInt(r.id, 10);
+        });
+        var added = false;
+        Object.keys(DEFAULT_OPTIONS).forEach(function (cat) {
+          if (cats[cat]) return;
+          DEFAULT_OPTIONS[cat].forEach(function (v, i) {
+            store.put({ id: ++maxId, category: cat, value: v, sort: i });
+            added = true;
+          });
+        });
+        if (!added) resolve();
+      };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+
+  function getOptions(category) {
+    return getAll("options").then(function (rows) {
+      var vals = rows.filter(function (r) { return r.category === category; })
+        .sort(function (a, b) { return (a.sort || 0) - (b.sort || 0); })
+        .map(function (r) { return r.value; });
+      if (vals.length) return vals;
+      return DEFAULT_OPTIONS[category] || [];
+    });
+  }
+
+  function putOption(obj) {
+    return openDB().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var t = db.transaction("options", "readwrite");
+        t.oncomplete = function () { resolve(obj); };
+        t.onerror = function () { reject(t.error); };
+        if (obj.id === undefined || obj.id === null) {
+          getAll("options").then(function (rows) {
+            var maxId = 0;
+            rows.forEach(function (r) { if (r.id > maxId) maxId = r.id; });
+            obj.id = maxId + 1;
+            obj.sort = obj.sort === undefined ? (rows.filter(function (r) { return r.category === obj.category; }).length) : obj.sort;
+            t.objectStore("options").put(obj);
+          }).catch(reject);
+        } else {
+          t.objectStore("options").put(obj);
+        }
+      });
+    });
+  }
+
+  function delOption(id) {
+    return del("options", id);
   }
 
   // ---- 默认账号 / 演示数据 ----
@@ -206,7 +287,9 @@
       : Promise.resolve(pkg.data || {});
     return get.then(function (data) {
       // 整体覆盖业务表（快照替换）：先清空，再写入
+      // 兼容旧包：若数据包不含 options，保留本机 options，避免被清空
       return Promise.all(EXPORT_TABLES.map(function (s) {
+        if (s === "options" && !(data.options && data.options.length)) return Promise.resolve(true);
         return clearStore(s).then(function () {
           var rows = data[s] || [];
           return Promise.all(rows.map(function (r) {
@@ -269,6 +352,8 @@
     changePassword: changePassword, exportPackage: exportPackage,
     gatherPackageData: gatherPackageData,
     importPackage: importPackage, clearBusiness: clearBusiness,
+    initOptions: initOptions, getOptions: getOptions, putOption: putOption, delOption: delOption,
+    DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     now: now, hashPassword: hashPassword, fileToDataURL: fileToDataURL,
     PACKAGE_FORMAT: PACKAGE_FORMAT, EXPORT_TABLES: EXPORT_TABLES
   };
