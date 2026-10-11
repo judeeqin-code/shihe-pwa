@@ -143,6 +143,13 @@ body {
 .photo-actions { display: flex; gap: 10px; margin: 10px 0; }
 .photo-actions .btn { flex: 1; }
 
+/* 现场照片大图预览 */
+.photo-lightbox { align-items: center; justify-content: center; background: rgba(0,0,0,.92); }
+.photo-lightbox .lb-wrap { max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column;
+  align-items: center; gap: 12px; }
+.photo-lightbox img { max-width: 96vw; max-height: 80vh; border-radius: 8px; object-fit: contain; }
+.photo-lightbox .lb-bar { display: flex; gap: 10px; }
+
 .empty { text-align: center; color: var(--sub); padding: 40px 10px; }
 .toast {
   position: fixed; left: 50%; top: 70px; transform: translateX(-50%);

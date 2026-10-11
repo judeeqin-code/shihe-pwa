@@ -476,7 +476,7 @@
         '<button class="btn" data-act="tk-album" data-id="' + id + '">相册</button></div>';
       if (photos.length) {
         html += '<div class="photos">' + photos.map(function (p) {
-          return '<img src="' + esc(p.photo_data) + '" data-act="tk-photo" data-id="' + p.id + '" data-tid="' + id + '">';
+          return '<img class="ticket-photo" src="' + esc(p.photo_data) + '" data-act="tk-photo" data-id="' + p.id + '" data-tid="' + id + '" draggable="false" oncontextmenu="return false;">';
         }).join("") + "</div>";
       } else html += '<div class="sub">暂无照片</div>';
       html += "</div>";
@@ -504,8 +504,82 @@
     return '<div class="meta"><b style="color:#374151;">' + esc(k) + "：</b>" + esc(v) + "</div>";
   }
 
+  // 现场照片：大图预览（lightbox）
+  function openPhotoLightbox(src, pid, tid) {
+    var ov = document.createElement("div");
+    ov.className = "overlay photo-lightbox";
+    ov.innerHTML =
+      '<div class="lb-wrap">' +
+      '<img src="' + src + '" alt="现场照片">' +
+      '<div class="lb-bar">' +
+      '<button class="btn ghost sm" data-x="close">关闭</button>' +
+      '<button class="btn danger sm" data-x="del">删除照片</button>' +
+      "</div></div>";
+    ov.addEventListener("click", function (e) {
+      if (e.target === ov || (e.target.getAttribute && e.target.getAttribute("data-x") === "close")) closeSheet(ov);
+    });
+    overlayRoot.appendChild(ov);
+    $("[data-x=del]", ov).onclick = function (e) {
+      e.stopPropagation();
+      closeSheet(ov);
+      confirmSheet("删除照片", "确定删除这张照片？", function () {
+        DB.del("ticket_photos", pid).then(function () { ticketDetail(tid); toast("已删除"); });
+      }, true);
+    };
+  }
+
+  // 现场照片：长按动作菜单（查看图片 / 删除照片）
+  function photoActionSheet(src, pid, tid) {
+    openSheet(
+      "<h3>现场照片</h3>" +
+      "<div class='actions' style='flex-direction:column;'>" +
+      "<button class='btn primary' data-x='view'>查看图片</button>" +
+      "<button class='btn danger' data-x='del'>删除照片</button>" +
+      "</div>",
+      function (sheet, ov) {
+        $("[data-x=view]", sheet).onclick = function () { closeSheet(ov); openPhotoLightbox(src, pid, tid); };
+        $("[data-x=del]", sheet).onclick = function () {
+          closeSheet(ov);
+          confirmSheet("删除照片", "确定删除这张照片？", function () {
+            DB.del("ticket_photos", pid).then(function () { ticketDetail(tid); toast("已删除"); });
+          }, true);
+        };
+      }
+    );
+  }
+
+  // 长按手势：在 .photos img 上长按弹出菜单（屏蔽浏览器原生「查看图片=下载」）
+  var lpTimer = null, suppressClick = false;
+  function photoPress(img) {
+    if (lpTimer) clearTimeout(lpTimer);
+    suppressClick = false;
+    lpTimer = setTimeout(function () {
+      suppressClick = true;
+      var pid = parseInt(img.getAttribute("data-id"), 10);
+      var tid = parseInt(img.getAttribute("data-tid"), 10);
+      var src = img.getAttribute("src");
+      photoActionSheet(src, pid, tid);
+      setTimeout(function () { suppressClick = false; }, 600);
+    }, 480);
+  }
+  function photoRelease() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } }
+  content.addEventListener("touchstart", function (e) {
+    var img = e.target.closest ? e.target.closest(".photos img") : null; if (img) photoPress(img);
+  }, { passive: true });
+  content.addEventListener("mousedown", function (e) {
+    var img = e.target.closest ? e.target.closest(".photos img") : null; if (img) photoPress(img);
+  });
+  content.addEventListener("touchend", photoRelease, { passive: true });
+  content.addEventListener("touchmove", photoRelease, { passive: true });
+  content.addEventListener("mouseup", photoRelease);
+  content.addEventListener("mouseleave", photoRelease);
+  content.addEventListener("contextmenu", function (e) {
+    if (e.target && e.target.closest && e.target.closest(".photos img")) e.preventDefault();
+  }, { passive: false });
+
   // 工单状态流转/操作（事件委托）
   document.addEventListener("click", function (e) {
+    if (suppressClick) { suppressClick = false; return; }
     var t = e.target.closest("[data-act]");
     if (!t) return;
     var act = t.getAttribute("data-act");
@@ -522,9 +596,9 @@
     if (act === "tk-album") { pendingTid = id; albumInput.value = ""; albumInput.click(); return; }
     if (act === "tk-photo") {
       var pid = parseInt(t.getAttribute("data-id"), 10);
-      confirmSheet("删除照片", "确定删除这张照片？", function () {
-        DB.del("ticket_photos", pid).then(function () { ticketDetail(parseInt(t.getAttribute("data-tid"), 10)); toast("已删除"); });
-      }, true); return;
+      var psrc = t.getAttribute("src");
+      var ptid = parseInt(t.getAttribute("data-tid"), 10);
+      openPhotoLightbox(psrc, pid, ptid); return;
     }
     if (act === "tk-addlog") { addLogForm(id); return; }
     if (act === "tk-addpart") { addPartForm(id); return; }
